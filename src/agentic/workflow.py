@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+import ast
+import json
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, TypedDict
 
 
 class WorkflowError(RuntimeError):
     """Raised when the research-agent workflow cannot complete."""
+
+
+class WorkflowResponse(TypedDict):
+    """Structured response returned by the research workflow."""
+
+    query: str
+    answer: str
+    retrieved_papers: list[dict[str, Any]]
+    agent_result: Mapping[str, Any]
 
 
 def validate_user_query(query: str) -> str:
@@ -58,8 +69,68 @@ def _extract_final_response(agent_result: Mapping[str, Any]) -> str:
     return final_response
 
 
-def process_user_query(query: str) -> str:
-    """Validate a query, invoke the research agent, and return its response."""
+def _parse_tool_content(content: Any) -> Any:
+    """Parse structured tool content from LangChain tool messages."""
+    if not isinstance(content, str):
+        return content
+
+    cleaned_content = content.strip()
+    if not cleaned_content:
+        return None
+
+    try:
+        return json.loads(cleaned_content)
+    except json.JSONDecodeError:
+        pass
+
+    try:
+        return ast.literal_eval(cleaned_content)
+    except (SyntaxError, ValueError):
+        return cleaned_content
+
+
+def _paper_key(paper: Mapping[str, Any]) -> str:
+    """Return a stable de-duplication key for a retrieved paper."""
+    dataset_index = paper.get("dataset_index")
+    if dataset_index is not None:
+        return f"dataset_index:{dataset_index}"
+    return f"title:{paper.get('title', '')}"
+
+
+def _extract_retrieved_papers(agent_result: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Collect structured paper objects from agent tool messages."""
+    messages = agent_result.get("messages")
+    if not isinstance(messages, Sequence):
+        return []
+
+    papers_by_key: dict[str, dict[str, Any]] = {}
+    for message in messages:
+        parsed_content = _parse_tool_content(_message_content(message))
+
+        candidate_papers: list[Any] = []
+        if isinstance(parsed_content, Mapping):
+            results = parsed_content.get("results")
+            if isinstance(results, list):
+                candidate_papers.extend(results)
+            elif {"title", "abstract", "dataset_index"}.issubset(parsed_content):
+                candidate_papers.append(parsed_content)
+        elif isinstance(parsed_content, list):
+            candidate_papers.extend(parsed_content)
+
+        for candidate in candidate_papers:
+            if not isinstance(candidate, Mapping):
+                continue
+            if not {"title", "abstract"}.issubset(candidate):
+                continue
+
+            paper = dict(candidate)
+            papers_by_key[_paper_key(paper)] = paper
+
+    return list(papers_by_key.values())
+
+
+def process_user_query_structured(query: str) -> WorkflowResponse:
+    """Invoke the research agent and return answer plus retrieved papers."""
     cleaned_query = validate_user_query(query)
 
     try:
@@ -72,10 +143,20 @@ def process_user_query(query: str) -> str:
         if not isinstance(result, Mapping):
             raise WorkflowError("Agent returned an unexpected response format.")
 
-        return _extract_final_response(result)
+        return {
+            "query": cleaned_query,
+            "answer": _extract_final_response(result),
+            "retrieved_papers": _extract_retrieved_papers(result),
+            "agent_result": result,
+        }
     except WorkflowError:
         raise
     except ValueError:
         raise
     except Exception as exc:
         raise WorkflowError(f"Failed to process user query: {exc}") from exc
+
+
+def process_user_query(query: str) -> str:
+    """Validate a query, invoke the research agent, and return its answer."""
+    return process_user_query_structured(query)["answer"]

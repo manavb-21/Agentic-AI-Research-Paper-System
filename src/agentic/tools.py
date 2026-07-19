@@ -29,21 +29,13 @@ def search_papers(query: str, k: int = DEFAULT_TOP_K) -> dict[str, object]:
 
 @tool
 def fetch_paper_metadata(dataset_index: int) -> dict[str, object]:
-    """Fetch title and abstract for a paper by its dataset index."""
-    from src.base.engine import load_paper_dataset
+    """Fetch structured paper metadata by dataset index."""
+    from src.base.engine import get_paper_metadata
 
-    dataframe = load_paper_dataset()
-    if dataset_index < 0 or dataset_index >= len(dataframe):
-        raise ValueError(
-            f"dataset_index must be between 0 and {len(dataframe) - 1}."
-        )
+    if dataset_index < 0:
+        raise ValueError("dataset_index cannot be negative.")
 
-    paper = dataframe.iloc[dataset_index]
-    return {
-        "dataset_index": dataset_index,
-        "title": str(paper["title"]),
-        "abstract": str(paper["abstract"]),
-    }
+    return get_paper_metadata(dataset_index)
 
 
 RESEARCH_TOOLS: list[BaseTool] = [

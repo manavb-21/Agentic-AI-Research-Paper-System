@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, Mapping, TypedDict, cast
 
 import faiss
 import pandas as pd
@@ -29,7 +29,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 DATASET_NAME = "CShorten/ML-ArXiv-Papers"
 DATASET_SPLIT = "train"
-DATASET_COLUMNS = ("title", "abstract")
+REQUIRED_DATASET_COLUMNS = ("title", "abstract")
 MAX_PAPERS = 15_000
 
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
@@ -53,6 +53,18 @@ class PaperSearchResult(TypedDict):
     title: str
     abstract: str
     similarity_score: float
+    authors: list[str] | None
+    metadata: dict[str, Any]
+
+
+class PaperMetadata(TypedDict):
+    """Structured paper metadata independent of a search score."""
+
+    dataset_index: int
+    title: str
+    abstract: str
+    authors: list[str] | None
+    metadata: dict[str, Any]
 
 
 class SearchResponse(TypedDict):
@@ -61,6 +73,7 @@ class SearchResponse(TypedDict):
     query: str
     k: int
     results: list[PaperSearchResult]
+    metadata: dict[str, Any]
 
 
 _embedding_model: SentenceTransformer | None = None
@@ -91,9 +104,9 @@ def load_models() -> SentenceTransformer:
 def load_paper_dataset(max_papers: int = MAX_PAPERS) -> pd.DataFrame:
     """Load and cache the ML-ArXiv dataset prepared for semantic retrieval.
 
-    The returned frame contains ``title``, ``abstract``, and ``combined_text``.
-    ``combined_text`` preserves the existing retrieval input format used when
-    building FAISS embeddings.
+    The returned frame preserves all source dataset columns and adds
+    ``combined_text``. ``combined_text`` preserves the existing retrieval input
+    format used when building FAISS embeddings.
     """
     global _dataframe
 
@@ -113,7 +126,15 @@ def load_paper_dataset(max_papers: int = MAX_PAPERS) -> pd.DataFrame:
     try:
         dataset = load_dataset(DATASET_NAME, split=DATASET_SPLIT)
         df = dataset.to_pandas()
-        df = df.loc[:, list(DATASET_COLUMNS)].dropna().reset_index(drop=True)
+        missing_columns = [
+            column for column in REQUIRED_DATASET_COLUMNS if column not in df.columns
+        ]
+        if missing_columns:
+            raise EngineError(
+                f"Dataset is missing required columns: {', '.join(missing_columns)}"
+            )
+
+        df = df.dropna(subset=list(REQUIRED_DATASET_COLUMNS)).reset_index(drop=True)
         df = df.iloc[:max_papers].reset_index(drop=True)
         df["combined_text"] = df["title"].astype(str) + ". " + df["abstract"].astype(str)
     except Exception as exc:
@@ -123,6 +144,125 @@ def load_paper_dataset(max_papers: int = MAX_PAPERS) -> pd.DataFrame:
     _dataframe = df
     logger.info("Loaded %d papers", len(_dataframe))
     return _dataframe
+
+
+def _is_missing_value(value: Any) -> bool:
+    """Return whether a dataset value should be treated as missing."""
+    if value is None:
+        return True
+
+    try:
+        missing = pd.isna(value)
+    except (TypeError, ValueError):
+        return False
+
+    if isinstance(missing, bool):
+        return missing
+
+    if hasattr(missing, "item"):
+        try:
+            return bool(missing.item())
+        except (TypeError, ValueError):
+            return False
+
+    return False
+
+
+def _to_json_safe(value: Any) -> Any:
+    """Convert dataset values to JSON-friendly Python objects."""
+    if _is_missing_value(value):
+        return None
+
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except (TypeError, ValueError):
+            pass
+
+    if isinstance(value, dict):
+        return {str(key): _to_json_safe(item) for key, item in value.items()}
+
+    if isinstance(value, (list, tuple, set)):
+        return [_to_json_safe(item) for item in value]
+
+    return value
+
+
+def _normalize_authors(value: Any) -> list[str] | None:
+    """Normalize an authors field from the source dataset when available."""
+    if _is_missing_value(value):
+        return None
+
+    if isinstance(value, str):
+        authors = [
+            author.strip()
+            for author in value.replace(" and ", ",").split(",")
+            if author.strip()
+        ]
+        return authors or None
+
+    if isinstance(value, (list, tuple, set)):
+        authors = [str(author).strip() for author in value if str(author).strip()]
+        return authors or None
+
+    return [str(value).strip()] if str(value).strip() else None
+
+
+def _extract_authors(metadata: Mapping[str, Any]) -> list[str] | None:
+    """Extract authors from known metadata key variants when present."""
+    for key in ("authors", "author", "creator", "creators"):
+        if key in metadata:
+            authors = _normalize_authors(metadata[key])
+            if authors:
+                return authors
+
+    return None
+
+
+def _paper_from_row(
+    row: pd.Series,
+    dataset_index: int,
+    *,
+    rank: int | None = None,
+    similarity_score: float | None = None,
+) -> PaperMetadata | PaperSearchResult:
+    """Build a structured paper payload from a dataset row."""
+    metadata = {
+        str(column): _to_json_safe(value)
+        for column, value in row.items()
+        if column not in {"title", "abstract", "combined_text"}
+    }
+    authors = _extract_authors(metadata)
+
+    paper: PaperMetadata = {
+        "dataset_index": dataset_index,
+        "title": str(row["title"]),
+        "abstract": str(row["abstract"]),
+        "authors": authors,
+        "metadata": metadata,
+    }
+
+    if rank is None or similarity_score is None:
+        return paper
+
+    return {
+        **paper,
+        "rank": rank,
+        "similarity_score": similarity_score,
+    }
+
+
+def get_paper_metadata(dataset_index: int) -> PaperMetadata:
+    """Return structured paper data for a dataset index."""
+    dataframe = load_paper_dataset()
+    if dataset_index < 0 or dataset_index >= len(dataframe):
+        raise EngineError(
+            f"dataset_index must be between 0 and {len(dataframe) - 1}.",
+            status_code=400,
+        )
+
+    paper = _paper_from_row(dataframe.iloc[dataset_index], dataset_index)
+    return paper
 
 
 def load_faiss_index(index_path: Path = INDEX_PATH) -> Any:
@@ -227,16 +367,13 @@ def semantic_search(query: str, k: int = 5) -> list[PaperSearchResult]:
             )
             continue
 
-        row = dataframe.iloc[row_index]
-        results.append(
-            {
-                "rank": len(results) + 1,
-                "dataset_index": row_index,
-                "title": str(row["title"]),
-                "abstract": str(row["abstract"]),
-                "similarity_score": float(score),
-            }
+        paper = _paper_from_row(
+            dataframe.iloc[row_index],
+            row_index,
+            rank=len(results) + 1,
+            similarity_score=float(score),
         )
+        results.append(cast(PaperSearchResult, paper))
 
     return results
 
@@ -247,6 +384,12 @@ def search_papers(query: str, k: int = 5) -> SearchResponse:
         "query": query.strip() if query else "",
         "k": k,
         "results": semantic_search(query=query, k=k),
+        "metadata": {
+            "dataset": DATASET_NAME,
+            "split": DATASET_SPLIT,
+            "embedding_model": EMBEDDING_MODEL_NAME,
+            "index_path": str(INDEX_PATH),
+        },
     }
 
 

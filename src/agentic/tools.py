@@ -1,17 +1,10 @@
-"""LangChain tool wrappers for retrieval and prompt preparation."""
+"""LangChain tools for research-paper retrieval actions."""
 
 from __future__ import annotations
 
-from langchain_core.tools import tool
+from langchain_core.tools import BaseTool, tool
 
 from src.agentic.config import DEFAULT_TOP_K
-from src.agentic.prompts import (
-    build_difficulty_estimation_prompt,
-    build_paper_comparison_prompt,
-    build_paper_summarization_prompt,
-    build_research_gap_analysis_prompt,
-    build_research_recommendation_prompt,
-)
 
 
 def _require_text(value: str, field_name: str) -> str:
@@ -35,52 +28,25 @@ def search_papers(query: str, k: int = DEFAULT_TOP_K) -> dict[str, object]:
 
 
 @tool
-def summarize_paper(title: str, abstract: str) -> str:
-    """Build a summarization prompt for a single paper."""
-    return build_paper_summarization_prompt(
-        title=_require_text(title, "title"),
-        abstract=_require_text(abstract, "abstract"),
-    )
+def fetch_paper_metadata(dataset_index: int) -> dict[str, object]:
+    """Fetch title and abstract for a paper by its dataset index."""
+    from src.base.engine import load_paper_dataset
+
+    dataframe = load_paper_dataset()
+    if dataset_index < 0 or dataset_index >= len(dataframe):
+        raise ValueError(
+            f"dataset_index must be between 0 and {len(dataframe) - 1}."
+        )
+
+    paper = dataframe.iloc[dataset_index]
+    return {
+        "dataset_index": dataset_index,
+        "title": str(paper["title"]),
+        "abstract": str(paper["abstract"]),
+    }
 
 
-@tool
-def compare_papers(
-    title_a: str,
-    abstract_a: str,
-    title_b: str,
-    abstract_b: str,
-) -> str:
-    """Build a comparison prompt for two papers."""
-    return build_paper_comparison_prompt(
-        title_a=_require_text(title_a, "title_a"),
-        abstract_a=_require_text(abstract_a, "abstract_a"),
-        title_b=_require_text(title_b, "title_b"),
-        abstract_b=_require_text(abstract_b, "abstract_b"),
-    )
-
-
-@tool
-def recommend_papers(query: str, papers: str) -> str:
-    """Build a recommendation prompt from a query and retrieved papers."""
-    return build_research_recommendation_prompt(
-        query=_require_text(query, "query"),
-        papers=_require_text(papers, "papers"),
-    )
-
-
-@tool
-def estimate_difficulty(title: str, abstract: str) -> str:
-    """Build a difficulty-estimation prompt for a single paper."""
-    return build_difficulty_estimation_prompt(
-        title=_require_text(title, "title"),
-        abstract=_require_text(abstract, "abstract"),
-    )
-
-
-@tool
-def analyze_research_gap(topic: str, papers: str) -> str:
-    """Build a research-gap analysis prompt from a topic and papers."""
-    return build_research_gap_analysis_prompt(
-        topic=_require_text(topic, "topic"),
-        papers=_require_text(papers, "papers"),
-    )
+RESEARCH_TOOLS: list[BaseTool] = [
+    search_papers,
+    fetch_paper_metadata,
+]

@@ -262,7 +262,7 @@ def get_paper_metadata(dataset_index: int) -> PaperMetadata:
         )
 
     paper = _paper_from_row(dataframe.iloc[dataset_index], dataset_index)
-    return paper
+    return cast(PaperMetadata, paper)
 
 
 def load_faiss_index(index_path: Path = INDEX_PATH) -> Any:

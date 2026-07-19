@@ -31,7 +31,9 @@ SUGGESTED_QUESTIONS = [
     "Explain LoRA",
 ]
 EMBEDDING_MODEL_DISPLAY = "all-MiniLM-L6-v2"
-FAISS_INDEX_PATH = Path(__file__).resolve().parents[2] / "data" / "index" / "faiss.index"
+FAISS_INDEX_PATH = (
+    Path(__file__).resolve().parents[2] / "data" / "index" / "faiss.index"
+)
 SUGGESTIONS_PER_ROW = 3
 
 
@@ -480,7 +482,7 @@ def _render_footer() -> None:
         """
         <div class="footer">
             <strong>Agentic AI Research Paper Intelligence System</strong><br/>
-            Powered by LangChain · ChatGroq · FAISS · SentenceTransformers
+            Powered by LangChain | ChatGroq | FAISS | SentenceTransformers
         </div>
         """,
         unsafe_allow_html=True,

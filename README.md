@@ -1,4 +1,4 @@
-# 🤖 Ag 
+# 🤖 Agentic AI Research Paper Intelligence System
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B)

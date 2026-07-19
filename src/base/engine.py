@@ -1,33 +1,43 @@
+"""Retrieval engine for the ML-ArXiv research paper dataset.
+
+This module intentionally contains only retrieval concerns:
+
+- load the SentenceTransformer embedding model
+- load and prepare the ML-ArXiv dataset
+- load or build the FAISS index
+- run semantic search
+- return structured paper records
+
+Agent reasoning, summarization, LangChain tool wrapping, API routes, and UI code
+belong in higher-level modules.
+"""
+
+from __future__ import annotations
+
 import logging
-import os
-import time
+from pathlib import Path
 from typing import Any, TypedDict
 
 import faiss
 import pandas as pd
-import torch
 from datasets import load_dataset
-from keybert import KeyBERT
 from sentence_transformers import SentenceTransformer
-from transformers import (
-    AutoModelForSeq2SeqLM,
-    AutoModelForTokenClassification,
-    AutoTokenizer,
-)
 
 logger = logging.getLogger(__name__)
 
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-EMBEDDING_MODEL_NAME = 'all-MiniLM-L6-v2'
-SUMMARIZER_MODEL_NAME = 'facebook/bart-large-cnn'
-NER_MODEL_NAME = 'dslim/bert-base-NER'
+DATASET_NAME = "CShorten/ML-ArXiv-Papers"
+DATASET_SPLIT = "train"
+DATASET_COLUMNS = ("title", "abstract")
+MAX_PAPERS = 15_000
 
-INDEX_PATH = 'data/index/faiss.index'
+EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+INDEX_PATH = PROJECT_ROOT / "data" / "index" / "faiss.index"
 
 
 class EngineError(Exception):
-    """Base exception for recoverable engine failures."""
+    """Base exception for recoverable retrieval engine failures."""
 
     def __init__(self, message: str, status_code: int = 500) -> None:
         super().__init__(message)
@@ -35,341 +45,216 @@ class EngineError(Exception):
         self.status_code = status_code
 
 
-class PaperResult(TypedDict):
+class PaperSearchResult(TypedDict):
+    """Single paper returned by semantic search."""
+
+    rank: int
+    dataset_index: int
     title: str
     abstract: str
-    score: float
-    keywords: list[tuple[str, float]]
-    entities: list[tuple[str, str]]
-
-
-class TopPaperResponse(TypedDict):
-    title: str
     similarity_score: float
-    keywords: list[tuple[str, float]]
-    entities: list[tuple[str, str]]
 
 
-class QueryResponse(TypedDict):
+class SearchResponse(TypedDict):
+    """Structured retrieval response suitable for a LangChain tool."""
+
     query: str
-    generative_summary: str
-    top_papers: list[TopPaperResponse]
+    k: int
+    results: list[PaperSearchResult]
 
 
+_embedding_model: SentenceTransformer | None = None
 _dataframe: pd.DataFrame | None = None
 _faiss_index: Any | None = None
-_embedding_model: SentenceTransformer | None = None
-_keyword_model: KeyBERT | None = None
-_summarizer_tokenizer: Any | None = None
-_summarizer_model: AutoModelForSeq2SeqLM | None = None
-_ner_tokenizer: Any | None = None
-_ner_model: AutoModelForTokenClassification | None = None
 
 
-def load_models() -> None:
-    """Load all ML models required by the research paper intelligence engine."""
+def load_embedding_model() -> SentenceTransformer:
+    """Load and cache the sentence-transformer used for query embeddings."""
     global _embedding_model
-    global _keyword_model
-    global _summarizer_tokenizer
-    global _summarizer_model
-    global _ner_tokenizer
-    global _ner_model
 
-    if all([
-        _embedding_model,
-        _keyword_model,
-        _summarizer_tokenizer,
-        _summarizer_model,
-        _ner_tokenizer,
-        _ner_model,
-    ]):
-        return
+    if _embedding_model is None:
+        logger.info("Loading embedding model: %s", EMBEDDING_MODEL_NAME)
+        try:
+            _embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
+        except Exception as exc:
+            logger.exception("Embedding model loading failed")
+            raise EngineError("Failed to load embedding model") from exc
 
-    logger.info('Loading models on device: %s', DEVICE)
+    return _embedding_model
+
+
+def load_models() -> SentenceTransformer:
+    """Backward-compatible wrapper that loads only the embedding model."""
+    return load_embedding_model()
+
+
+def load_paper_dataset(max_papers: int = MAX_PAPERS) -> pd.DataFrame:
+    """Load and cache the ML-ArXiv dataset prepared for semantic retrieval.
+
+    The returned frame contains ``title``, ``abstract``, and ``combined_text``.
+    ``combined_text`` preserves the existing retrieval input format used when
+    building FAISS embeddings.
+    """
+    global _dataframe
+
+    if _dataframe is not None:
+        return _dataframe
+
+    if max_papers <= 0:
+        raise EngineError("max_papers must be greater than zero", status_code=400)
+
+    logger.info(
+        "Loading dataset %s split=%s with max_papers=%d",
+        DATASET_NAME,
+        DATASET_SPLIT,
+        max_papers,
+    )
 
     try:
-        if _embedding_model is None:
-            logger.info('Loading embedding model: %s', EMBEDDING_MODEL_NAME)
-            _embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, device=DEVICE.type)
-
-        if _keyword_model is None:
-            logger.info('Initializing KeyBERT keyword model')
-            _keyword_model = KeyBERT(model=_embedding_model)
-
-        if _summarizer_tokenizer is None:
-            logger.info('Loading summarizer tokenizer: %s', SUMMARIZER_MODEL_NAME)
-            _summarizer_tokenizer = AutoTokenizer.from_pretrained(SUMMARIZER_MODEL_NAME)
-
-        if _summarizer_model is None:
-            logger.info('Loading summarizer model: %s', SUMMARIZER_MODEL_NAME)
-            _summarizer_model = AutoModelForSeq2SeqLM.from_pretrained(SUMMARIZER_MODEL_NAME).to(DEVICE)
-            _summarizer_model.eval()
-
-        if _ner_tokenizer is None:
-            logger.info('Loading NER tokenizer: %s', NER_MODEL_NAME)
-            _ner_tokenizer = AutoTokenizer.from_pretrained(NER_MODEL_NAME)
-
-        if _ner_model is None:
-            logger.info('Loading NER model: %s', NER_MODEL_NAME)
-            _ner_model = AutoModelForTokenClassification.from_pretrained(NER_MODEL_NAME).to(DEVICE)
-            _ner_model.eval()
-
-        logger.info('Model loading complete')
+        dataset = load_dataset(DATASET_NAME, split=DATASET_SPLIT)
+        df = dataset.to_pandas()
+        df = df.loc[:, list(DATASET_COLUMNS)].dropna().reset_index(drop=True)
+        df = df.iloc[:max_papers].reset_index(drop=True)
+        df["combined_text"] = df["title"].astype(str) + ". " + df["abstract"].astype(str)
     except Exception as exc:
-        logger.exception('Model loading failed')
-        raise EngineError('Failed to load ML models') from exc
+        logger.exception("Dataset loading failed")
+        raise EngineError("Failed to load research paper dataset") from exc
+
+    _dataframe = df
+    logger.info("Loaded %d papers", len(_dataframe))
+    return _dataframe
+
+
+def load_faiss_index(index_path: Path = INDEX_PATH) -> Any:
+    """Load and cache the FAISS index, creating it if no index file exists.
+
+    The index keeps the existing retrieval behavior: combined title/abstract
+    embeddings are L2-normalized and stored in an inner-product FAISS index.
+    """
+    global _faiss_index
+
+    if _faiss_index is not None:
+        return _faiss_index
+
+    dataframe = load_paper_dataset()
+
+    try:
+        index_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if index_path.exists():
+            logger.info("Loading FAISS index from %s", index_path)
+            _faiss_index = faiss.read_index(str(index_path))
+            return _faiss_index
+
+        logger.info("Creating FAISS index at %s", index_path)
+        embedding_model = load_embedding_model()
+        embeddings = embedding_model.encode(
+            dataframe["combined_text"].tolist(),
+            show_progress_bar=True,
+            convert_to_numpy=True,
+        ).astype("float32")
+
+        faiss.normalize_L2(embeddings)
+
+        index = faiss.IndexFlatIP(embeddings.shape[1])
+        index.add(embeddings)
+        faiss.write_index(index, str(index_path))
+
+        _faiss_index = index
+        return _faiss_index
+    except Exception as exc:
+        logger.exception("FAISS index loading failed")
+        raise EngineError("Failed to load or create FAISS index") from exc
+
+
+def initialize_engine() -> tuple[SentenceTransformer, pd.DataFrame, Any]:
+    """Initialize all retrieval resources and return them.
+
+    This is optional because public search functions initialize lazily, but it
+    is useful for application startup hooks that want failures to occur early.
+    """
+    embedding_model = load_embedding_model()
+    dataframe = load_paper_dataset()
+    index = load_faiss_index()
+    return embedding_model, dataframe, index
 
 
 def initialize_system() -> tuple[pd.DataFrame, Any]:
-    """Load the dataset, prepare paper text, and load or create the FAISS index."""
-    global _dataframe, _faiss_index
-
-    logger.info('Initializing research paper intelligence system')
-    load_models()
-
-    try:
-        dataset = load_dataset('CShorten/ML-ArXiv-Papers', split='train')
-        df = dataset.to_pandas()
-        df = df[['title', 'abstract']].dropna().reset_index(drop=True)
-        df = df.iloc[:15000].reset_index(drop=True)
-        df['combined_text'] = df['title'].astype(str) + '. ' + df['abstract'].astype(str)
-    except Exception as exc:
-        logger.exception('Dataset loading failed')
-        raise EngineError('Failed to load research paper dataset') from exc
-
-    _dataframe = df
-
-    try:
-        os.makedirs(os.path.dirname(INDEX_PATH), exist_ok=True)
-
-        if os.path.exists(INDEX_PATH):
-            logger.info('Loading FAISS index from %s', INDEX_PATH)
-            _faiss_index = faiss.read_index(INDEX_PATH)
-        else:
-            if _embedding_model is None:
-                raise EngineError('Embedding model is not loaded')
-
-            logger.info('Creating FAISS index at %s', INDEX_PATH)
-            embeddings = _embedding_model.encode(
-                df['combined_text'].tolist(),
-                show_progress_bar=True,
-                convert_to_numpy=True
-            ).astype('float32')
-
-            faiss.normalize_L2(embeddings)
-
-            dimension = embeddings.shape[1]
-            index = faiss.IndexFlatIP(dimension)
-            index.add(embeddings)
-
-            faiss.write_index(index, INDEX_PATH)
-            _faiss_index = index
-    except EngineError:
-        raise
-    except Exception as exc:
-        logger.exception('FAISS index loading failed')
-        raise EngineError('Failed to load or create FAISS index') from exc
-
-    logger.info('System initialization complete with %d papers', len(_dataframe))
-    return _dataframe, _faiss_index
+    """Backward-compatible wrapper that initializes retrieval resources only."""
+    _, dataframe, index = initialize_engine()
+    return dataframe, index
 
 
-def summarize_text(text: str, max_length: int = 180, min_length: int = 60) -> str:
-    """Generate a BART summary for the provided text."""
-    if not text or not text.strip():
-        return ''
+def semantic_search(query: str, k: int = 5) -> list[PaperSearchResult]:
+    """Return the top-k semantically similar papers for a query."""
+    normalized_query = query.strip() if query else ""
+    if not normalized_query:
+        raise EngineError("Query parameter cannot be empty", status_code=400)
+    if k <= 0:
+        raise EngineError("k must be greater than zero", status_code=400)
 
-    load_models()
+    embedding_model = load_embedding_model()
+    dataframe = load_paper_dataset()
+    index = load_faiss_index()
 
-    if _summarizer_tokenizer is None or _summarizer_model is None:
-        raise EngineError('Summarization model is not loaded')
+    if index.ntotal == 0:
+        raise EngineError("FAISS index is empty")
+
+    search_k = min(k, index.ntotal)
 
     try:
-        inputs = _summarizer_tokenizer(
-            text,
-            return_tensors='pt',
-            max_length=1024,
-            truncation=True,
-        )
-        inputs = {key: value.to(DEVICE) for key, value in inputs.items()}
-
-        with torch.no_grad():
-            summary_ids = _summarizer_model.generate(
-                **inputs,
-                max_length=max_length,
-                min_length=min_length,
-                do_sample=False,
-            )
-
-        return _summarizer_tokenizer.decode(summary_ids[0], skip_special_tokens=True)
-    except Exception as exc:
-        logger.exception('Summary generation failed')
-        raise EngineError('Failed to generate summary') from exc
-
-
-def extract_entities(text: str) -> list[tuple[str, str]]:
-    """Extract named entities from text using the BERT NER model."""
-    if not text or not text.strip():
-        return []
-
-    load_models()
-
-    if _ner_tokenizer is None or _ner_model is None:
-        raise EngineError('NER model is not loaded')
-
-    try:
-        inputs = _ner_tokenizer(
-            text,
-            return_tensors='pt',
-            return_offsets_mapping=True,
-            truncation=True,
-            max_length=512,
-        )
-        offset_mapping = inputs.pop('offset_mapping')[0].tolist()
-        inputs = {key: value.to(DEVICE) for key, value in inputs.items()}
-
-        with torch.no_grad():
-            logits = _ner_model(**inputs).logits
-
-        predictions = torch.argmax(logits, dim=-1)[0].cpu().tolist()
-        id_to_label = _ner_model.config.id2label
-
-        entities: list[dict[str, int | str]] = []
-        active_entity: dict[str, int | str] | None = None
-
-        for prediction, offsets in zip(predictions, offset_mapping):
-            start, end = offsets
-            if start == end:
-                continue
-
-            label = id_to_label[prediction]
-            if label == 'O':
-                if active_entity is not None:
-                    entities.append(active_entity)
-                    active_entity = None
-                continue
-
-            prefix, entity_type = label.split('-', 1)
-
-            if (
-                prefix == 'B'
-                or active_entity is None
-                or active_entity['entity_group'] != entity_type
-                or start > int(active_entity['end']) + 1
-            ):
-                if active_entity is not None:
-                    entities.append(active_entity)
-                active_entity = {
-                    'start': start,
-                    'end': end,
-                    'entity_group': entity_type,
-                }
-            else:
-                active_entity['end'] = end
-
-        if active_entity is not None:
-            entities.append(active_entity)
-
-        return [
-            (
-                text[int(entity['start']):int(entity['end'])],
-                str(entity['entity_group']),
-            )
-            for entity in entities
-        ]
-    except Exception as exc:
-        logger.exception('NER inference failed')
-        raise EngineError('Failed to extract named entities') from exc
-
-
-def process_query(query: str, k: int = 3) -> QueryResponse:
-    """Run semantic search, enrichment, and summarization for a user query."""
-    global _dataframe, _faiss_index
-
-    if not query or not query.strip():
-        raise EngineError('Query parameter cannot be empty', status_code=400)
-
-    logger.info('Query received: %s', query)
-
-    if _dataframe is None or _faiss_index is None:
-        initialize_system()
-
-    if _dataframe is None or _faiss_index is None or _embedding_model is None or _keyword_model is None:
-        raise EngineError('System is not initialized')
-
-    try:
-        search_started_at = time.perf_counter()
-
-        query_embedding = _embedding_model.encode([query], convert_to_numpy=True).astype('float32')
+        query_embedding = embedding_model.encode(
+            [normalized_query],
+            convert_to_numpy=True,
+        ).astype("float32")
         faiss.normalize_L2(query_embedding)
 
-        scores, indices = _faiss_index.search(query_embedding, k)
-        search_time = time.perf_counter() - search_started_at
-        logger.info('Semantic search completed in %.3f seconds', search_time)
-
-        results: list[PaperResult] = []
-        for score, idx in zip(scores[0], indices[0]):
-            if idx == -1:
-                continue
-
-            row = _dataframe.iloc[idx]
-            title = str(row['title'])
-            abstract = str(row['abstract'])
-
-            keywords = _keyword_model.extract_keywords(
-                abstract,
-                keyphrase_ngram_range=(1, 3),
-                stop_words='english',
-                top_n=5
-            )
-            entities = extract_entities(abstract)
-
-            logger.info('Title: %s', title)
-            logger.info('Similarity Score: %.4f', float(score))
-            logger.info('KeyBERT Keywords: %s', keywords)
-            logger.info('NER Entities: %s', entities)
-
-            results.append({
-                'title': title,
-                'abstract': abstract,
-                'score': float(score),
-                'keywords': keywords,
-                'entities': entities
-            })
-    except EngineError:
-        raise
+        scores, indices = index.search(query_embedding, search_k)
     except Exception as exc:
-        logger.exception('Query inference failed')
-        raise EngineError('Failed to process query') from exc
+        logger.exception("Semantic search failed")
+        raise EngineError("Failed to search research papers") from exc
 
-    top_abstracts = [r['abstract'] for r in results[:3]]
-    context = ' '.join(top_abstracts)
+    results: list[PaperSearchResult] = []
+    for score, dataset_index in zip(scores[0], indices[0]):
+        row_index = int(dataset_index)
+        if row_index < 0:
+            continue
+        if row_index >= len(dataframe):
+            logger.warning(
+                "FAISS result index %d is outside dataset size %d",
+                row_index,
+                len(dataframe),
+            )
+            continue
 
-    prompt = f'Synthesize a technical summary answering the query [{query}] using these references: [{context}]'
-
-    max_input_chars = 4000
-    if len(prompt) > max_input_chars:
-        prompt = prompt[:max_input_chars]
-
-    summary_started_at = time.perf_counter()
-    final_summary = summarize_text(
-        prompt,
-        max_length=180,
-        min_length=60,
-    )
-    summary_time = time.perf_counter() - summary_started_at
-    logger.info('Summary generation completed in %.3f seconds', summary_time)
-
-    return {
-        'query': query,
-        'generative_summary': final_summary,
-        'top_papers': [
+        row = dataframe.iloc[row_index]
+        results.append(
             {
-                'title': result['title'],
-                'similarity_score': result['score'],
-                'keywords': result['keywords'],
-                'entities': result['entities'],
+                "rank": len(results) + 1,
+                "dataset_index": row_index,
+                "title": str(row["title"]),
+                "abstract": str(row["abstract"]),
+                "similarity_score": float(score),
             }
-            for result in results
-        ],
+        )
+
+    return results
+
+
+def search_papers(query: str, k: int = 5) -> SearchResponse:
+    """Search papers and return a structured response for downstream tools."""
+    return {
+        "query": query.strip() if query else "",
+        "k": k,
+        "results": semantic_search(query=query, k=k),
     }
+
+
+def process_query(query: str, k: int = 5) -> SearchResponse:
+    """Backward-compatible alias for retrieval-only query processing.
+
+    Older code used this name for search plus summarization. The engine now
+    returns retrieval results only; summarization should be handled by the
+    agent layer with ChatGroq.
+    """
+    return search_papers(query=query, k=k)

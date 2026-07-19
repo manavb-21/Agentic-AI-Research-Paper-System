@@ -46,161 +46,273 @@ class ChatMessage(TypedDict):
 
 
 def _inject_theme() -> None:
-    """Apply the custom Streamlit theme for the portfolio UI."""
+    """Apply the custom Streamlit theme for the premium Agentic AI portfolio UI."""
     st.markdown(
         """
         <style>
+            /* Premium Dark Glassmorphism Variables */
             :root {
-                --paper-bg: #f7f8fb;
-                --paper-panel: rgba(255, 255, 255, 0.86);
-                --paper-border: rgba(31, 41, 55, 0.12);
-                --paper-text: #172033;
-                --paper-muted: #5b6475;
-                --paper-accent: #2563eb;
-                --paper-accent-soft: #e8f0ff;
-                --paper-success: #0f766e;
+                --bg-primary: #0b0f19;
+                --bg-secondary: #111827;
+                --surface: rgba(17, 24, 39, 0.75);
+                --surface-card: #1f2937;
+                --text-main: #f8fafc;
+                --text-muted: #94a3b8;
+                --accent: #3b82f6;
+                --accent-glow: rgba(59, 130, 246, 0.15);
+                --teal: #14b8a6;
+                --teal-glow: rgba(20, 184, 166, 0.15);
+                --radius: 14px;
+                --border: rgba(255, 255, 255, 0.08);
             }
 
-            .stApp {
-                background:
-                    radial-gradient(circle at top left, rgba(37, 99, 235, 0.10), transparent 32rem),
-                    linear-gradient(180deg, #fbfcff 0%, var(--paper-bg) 100%);
-                color: var(--paper-text);
+            /* Global Background & Text */
+            .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+                background-color: var(--bg-primary) !important;
+                background: radial-gradient(circle at 85% 15%, rgba(59, 130, 246, 0.12), transparent 40%),
+                            radial-gradient(circle at 15% 80%, rgba(20, 184, 166, 0.08), transparent 40%),
+                            var(--bg-primary) !important;
+                color: var(--text-main) !important;
             }
 
             .block-container {
                 max-width: 1120px;
                 padding-top: 2.2rem;
-                padding-bottom: 3.5rem;
+                padding-bottom: 5rem;
             }
 
-            h1, h2, h3 {
-                letter-spacing: 0;
+            h1, h2, h3, h4, h5, p, span, li, label {
+                color: var(--text-main) !important;
             }
 
+            /* Sidebar Override */
+            section[data-testid="stSidebar"], 
+            div[data-testid="stSidebarContent"] {
+                background-color: var(--bg-secondary) !important;
+                background: linear-gradient(180deg, #111827, #0b0f19) !important;
+                border-right: 1px solid var(--border) !important;
+            }
+            
+            section[data-testid="stSidebar"] * {
+                color: var(--text-main) !important;
+            }
+
+            /* Hero Section & Header Cards */
             .hero {
-                padding: 1.5rem 1.6rem;
-                border: 1px solid var(--paper-border);
-                border-radius: 18px;
-                background:
-                    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(232, 240, 255, 0.62));
-                box-shadow: 0 18px 40px rgba(15, 23, 42, 0.07);
-                margin-bottom: 1.2rem;
+                padding: 2rem 2.2rem;
+                border: 1px solid var(--border);
+                border-radius: 20px;
+                background: var(--surface);
+                backdrop-filter: blur(16px);
+                box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+                margin-bottom: 1.5rem;
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .hero::before {
+                content: "";
+                position: absolute;
+                top: 0; right: 0; width: 150px; height: 150px;
+                background: radial-gradient(circle, var(--accent-glow), transparent 70%);
+                pointer-events: none;
             }
 
             .hero-title {
-                margin: 0 0 0.45rem 0;
-                font-size: 2.35rem;
-                line-height: 1.12;
-                font-weight: 760;
-                color: var(--paper-text);
+                margin: 0 0 0.75rem 0;
+                font-size: 2.6rem;
+                line-height: 1.2;
+                font-weight: 800;
+                background: linear-gradient(to right, #ffffff, #94a3b8);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
             }
 
             .hero-copy {
                 margin: 0;
-                color: var(--paper-muted);
-                font-size: 1.03rem;
-                line-height: 1.62;
-                max-width: 760px;
+                color: var(--text-muted) !important;
+                font-size: 1.1rem;
+                line-height: 1.6;
+                max-width: 800px;
             }
 
+            /* Technology Pills */
             .tech-row {
                 display: flex;
                 flex-wrap: wrap;
-                gap: 0.55rem;
-                margin-top: 1rem;
+                gap: 0.65rem;
+                margin-top: 1.2rem;
             }
 
             .tech-pill {
-                border: 1px solid rgba(37, 99, 235, 0.16);
+                border: 1px solid rgba(59, 130, 246, 0.3);
                 border-radius: 999px;
-                background: rgba(255, 255, 255, 0.74);
-                color: #1f3f77;
-                padding: 0.34rem 0.72rem;
-                font-size: 0.86rem;
-                font-weight: 650;
+                background: rgba(59, 130, 246, 0.08);
+                color: #60a5fa !important;
+                padding: 0.35rem 0.85rem;
+                font-size: 0.85rem;
+                font-weight: 600;
+                letter-spacing: 0.02em;
             }
 
+            /* Section Headers */
             .section-card {
-                border: 1px solid var(--paper-border);
-                border-radius: 16px;
-                background: var(--paper-panel);
-                box-shadow: 0 12px 30px rgba(15, 23, 42, 0.055);
-                padding: 1.05rem 1.1rem;
-                margin: 1rem 0;
+                padding: 0.5rem 0 1rem 0;
             }
 
             .section-title {
-                margin: 0 0 0.65rem 0;
-                color: var(--paper-text);
-                font-size: 1rem;
-                font-weight: 720;
+                margin: 0;
+                color: var(--text-main);
+                font-size: 1.15rem;
+                font-weight: 700;
+                letter-spacing: 0.03em;
+                text-transform: uppercase;
+            }
+
+            /* Chat Flow Styling */
+            div[data-testid="stChatMessage"] {
+                background: transparent !important;
+                padding: 0.75rem 0;
+                border: none !important;
             }
 
             .message-meta {
-                color: var(--paper-muted);
-                font-size: 0.78rem;
-                margin-bottom: 0.35rem;
+                color: var(--text-muted) !important;
+                font-size: 0.8rem;
+                font-weight: 600;
+                margin-bottom: 0.5rem;
+                letter-spacing: 0.03em;
+            }
+
+            /* Chat Cards */
+            .user-card {
+                border: 1px solid rgba(20, 184, 166, 0.25);
+                border-radius: var(--radius);
+                background: rgba(20, 184, 166, 0.05);
+                padding: 1.2rem 1.4rem;
+                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
             }
 
             .assistant-card {
-                border: 1px solid rgba(37, 99, 235, 0.13);
-                border-radius: 16px;
-                background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-                box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
-                padding: 1rem 1.05rem;
-                margin-top: 0.15rem;
+                border: 1px solid var(--border);
+                border-radius: var(--radius);
+                background: var(--surface-card);
+                padding: 1.2rem 1.4rem;
+                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
             }
 
-            .user-card {
-                border: 1px solid rgba(15, 118, 110, 0.16);
-                border-radius: 16px;
-                background: linear-gradient(180deg, #ffffff 0%, #f6fffd 100%);
-                padding: 0.85rem 1rem;
-                margin-top: 0.15rem;
-            }
-
+            /* Status Grid Configuration */
             .status-grid {
                 display: grid;
                 grid-template-columns: repeat(2, minmax(0, 1fr));
-                gap: 0.55rem;
+                gap: 10px;
+                margin-top: 5px;
             }
 
             .status-item {
-                border: 1px solid var(--paper-border);
+                background: rgba(17, 24, 39, 0.5);
+                border: 1px solid var(--border);
                 border-radius: 12px;
-                background: rgba(255, 255, 255, 0.72);
-                padding: 0.65rem 0.7rem;
+                padding: 12px;
+                transition: transform 0.2s ease, border-color 0.2s ease;
+            }
+            
+            .status-item:hover {
+                border-color: rgba(59, 130, 246, 0.4);
+                transform: translateY(-2px);
             }
 
             .status-label {
-                color: var(--paper-muted);
-                font-size: 0.74rem;
-                margin-bottom: 0.2rem;
+                font-size: 0.75rem;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                color: var(--text-muted) !important;
+                margin-bottom: 4px;
             }
 
             .status-value {
-                color: var(--paper-text);
-                font-size: 0.9rem;
+                font-size: 0.95rem;
                 font-weight: 700;
+                color: var(--accent) !important;
             }
 
+            /* Streamlit Input Customization */
+            div[data-testid="stChatInput"] {
+                padding-bottom: 2rem;
+            }
+            
+            div[data-testid="stChatInput"] textarea {
+                background-color: var(--surface-card) !important;
+                color: var(--text-main) !important;
+                border: 1px solid var(--border) !important;
+                border-radius: 12px !important;
+            }
+
+            div[data-testid="stChatInput"] textarea:focus {
+                border-color: var(--accent) !important;
+                box-shadow: 0 0 0 2px var(--accent-glow) !important;
+            }
+
+            /* Buttons Overrides */
+            button[kind="secondary"], 
+            button[data-testid="baseButton-secondary"],
+            .stButton > button {
+                background: var(--surface-card) !important;
+                color: var(--text-main) !important;
+                border: 1px solid var(--border) !important;
+                border-radius: 10px !important;
+                font-weight: 600 !important;
+                transition: all 0.2s ease !important;
+            }
+
+            button[kind="secondary"]:hover,
+            .stButton > button:hover {
+                background: linear-gradient(135deg, #3b82f6, #1d4ed8) !important;
+                border-color: transparent !important;
+                transform: translateY(-1px) !important;
+                box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4) !important;
+            }
+            
+            /* Metric Overrides */
+            [data-testid="stMetricValue"] {
+                color: var(--text-main) !important;
+                font-weight: 700 !important;
+            }
+            
+            [data-testid="stMetricLabel"] {
+                color: var(--text-muted) !important;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+            }
+
+            /* Expander Overrides */
+            div[data-testid="stExpander"] {
+                background-color: rgba(17, 24, 39, 0.4) !important;
+                border: 1px solid var(--border) !important;
+                border-radius: 10px !important;
+            }
+            
+            div[data-testid="stExpander"] summary {
+                color: var(--text-main) !important;
+            }
+
+            /* Footer Stylings */
             .footer {
-                border-top: 1px solid var(--paper-border);
-                color: var(--paper-muted);
-                margin-top: 2rem;
-                padding-top: 1rem;
+                border-top: 1px solid var(--border);
+                color: var(--text-muted) !important;
+                margin-top: 3rem;
+                padding-top: 1.5rem;
                 text-align: center;
-                font-size: 0.9rem;
+                font-size: 0.85rem;
+                letter-spacing: 0.02em;
             }
-
-            div[data-testid="stSidebarContent"] {
-                background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(247,248,251,0.96));
-            }
-
-            div[data-testid="stChatMessage"] {
-                background: transparent;
-                padding: 0.6rem 0;
+            
+            /* Status / Spinner Overrides */
+            div[data-testid="stStatusWidget"], details {
+                background-color: var(--surface-card) !important;
+                border: 1px solid var(--border) !important;
+                color: var(--text-main) !important;
+                border-radius: 12px !important;
             }
         </style>
         """,
@@ -309,25 +421,27 @@ def _render_sidebar(messages: list[ChatMessage]) -> None:
 
         st.divider()
         st.markdown("### Chat Statistics")
-        st.metric("User messages", user_count)
-        st.metric("Assistant messages", assistant_count)
+        c1, c2 = st.columns(2)
+        c1.metric("User Messages", user_count)
+        c2.metric("AI Messages", assistant_count)
 
         st.divider()
         st.markdown("### Project Architecture")
-        st.code(
-            "User\n"
-            "  |\n"
-            "  v\n"
-            "Workflow\n"
-            "  |\n"
-            "  v\n"
-            "Research Agent\n"
-            "  |\n"
-            "  v\n"
-            "Tools\n"
-            "  |\n"
-            "  v\n"
-            "FAISS Retrieval"
+        st.markdown(
+            """
+            ```mermaid
+            User Input
+               │
+               ▼
+            LangChain Workflow
+               │
+               ▼
+            Agentic Reasoner
+               │
+               ▼
+            FAISS Vector Store
+            ```
+            """
         )
 
 
@@ -350,7 +464,7 @@ def _render_homepage() -> None:
     st.markdown(
         """
         <div class="section-card">
-            <div class="section-title">Suggested research questions</div>
+            <h3 class="section-title">Suggested Research Topics</h3>
         </div>
         """,
         unsafe_allow_html=True,
@@ -371,9 +485,9 @@ def _render_header() -> None:
     """Render compact page header once a conversation has started."""
     st.markdown(
         f"""
-        <div class="hero">
-            <h1 class="hero-title">{APP_TITLE}</h1>
-            <p class="hero-copy">
+        <div class="hero" style="padding: 1.5rem 1.8rem; margin-bottom: 1rem;">
+            <h1 class="hero-title" style="font-size: 1.8rem; margin-bottom: 0.25rem;">{APP_TITLE}</h1>
+            <p class="hero-copy" style="font-size: 0.95rem;">
                 Ask a research question and the agent will search relevant papers,
                 inspect retrieved metadata, and produce a grounded answer.
             </p>
@@ -392,10 +506,11 @@ def _render_message(message: ChatMessage) -> None:
 
     with st.chat_message(role):
         st.markdown(
-            f'<div class="message-meta">{label} - {timestamp}</div>',
+            f'<div class="message-meta">{label} • {timestamp}</div>',
             unsafe_allow_html=True,
         )
         st.markdown(f'<div class="{card_class}">', unsafe_allow_html=True)
+        
         if role == "assistant":
             with st.expander("Final AI Answer", expanded=True):
                 st.markdown(message["content"])
@@ -407,6 +522,7 @@ def _render_message(message: ChatMessage) -> None:
                 )
         else:
             st.markdown(message["content"])
+            
         st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -442,14 +558,14 @@ def _run_query(query: str) -> None:
 
     with st.chat_message("assistant"):
         st.markdown(
-            f'<div class="message-meta">Research Assistant - {_now_label()}</div>',
+            f'<div class="message-meta">Research Assistant • {_now_label()}</div>',
             unsafe_allow_html=True,
         )
         with st.spinner("Searching papers and preparing a response..."):
             with st.status("Research workflow in progress", expanded=True) as status:
                 status.write("Searching semantic embeddings...")
                 status.write("Retrieving papers from FAISS...")
-                status.write("Reasoning with Llama...")
+                status.write("Reasoning with Agent...")
                 status.write("Generating final response...")
                 try:
                     response = process_user_query(query)
@@ -481,8 +597,8 @@ def _render_footer() -> None:
     st.markdown(
         """
         <div class="footer">
-            <strong>Agentic AI Research Paper Intelligence System</strong><br/>
-            Powered by LangChain | ChatGroq | FAISS | SentenceTransformers
+            <strong>Agentic AI Research Platform</strong><br/>
+            Built with LangChain • ChatGroq • FAISS • Streamlit
         </div>
         """,
         unsafe_allow_html=True,
@@ -494,6 +610,7 @@ def main() -> None:
     st.set_page_config(
         page_title=APP_TITLE,
         layout="wide",
+        initial_sidebar_state="expanded"
     )
 
     _initialize_session_state()

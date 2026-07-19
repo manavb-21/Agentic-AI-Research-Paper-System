@@ -5,13 +5,12 @@
 ![LangChain](https://img.shields.io/badge/Agent-LangChain-1F2937)
 ![Groq](https://img.shields.io/badge/LLM-Llama%203.1%20via%20Groq-0F766E)
 ![FAISS](https://img.shields.io/badge/Retrieval-FAISS-2563EB)
-![License](https://img.shields.io/badge/License-MIT-green)
 
 An **Agentic AI-powered Research Assistant** that enables semantic search and intelligent question answering over **15,000+ Machine Learning research papers** from the **ML-ArXiv** dataset.
 
 Instead of relying on keyword search, the system combines **SentenceTransformers**, **FAISS**, **LangChain**, and **Groq-powered Llama 3.1** to retrieve the most relevant research papers and generate grounded, context-aware responses.
 
-The project follows a modular architecture where retrieval, tools, agent initialization, workflow orchestration, and the Streamlit frontend are cleanly separated.
+The project follows a modular, agent-oriented architecture where retrieval, workflow orchestration, tool invocation, and the Streamlit frontend are cleanly separated, making the system easy to extend and maintain.
 
 ---
 
@@ -27,6 +26,11 @@ The project follows a modular architecture where retrieval, tools, agent initial
 - 💡 Suggested research prompts
 - 📤 Export chat functionality
 - 🎨 Modern responsive UI
+- 📊 Real-time system status dashboard
+- 🗂 Conversation statistics
+- 💾 Export conversations as text
+- 🎯 Interactive suggested research topics
+- 🖥 Modern glassmorphism-inspired responsive interface
 
 ---
 
@@ -42,35 +46,26 @@ The project follows a modular architecture where retrieval, tools, agent initial
 
 ---
 
-# 📸 Screenshots
+# 🧩 System Components
 
-> Add screenshots before publishing the final portfolio.
-
-```text
-docs/screenshots/home.png
-docs/screenshots/chat.png
-docs/screenshots/sidebar.png
-```
-
-or
-
-```markdown
-![Home](docs/screenshots/home.png)
-
-![Chat](docs/screenshots/chat.png)
-```
+| Component | Responsibility |
+|-----------|----------------|
+| Streamlit | Interactive web interface |
+| Workflow | Handles user requests and orchestration |
+| LangChain Agent | Coordinates reasoning and tool usage |
+| Retrieval Engine | Semantic paper retrieval |
+| FAISS | Vector similarity search |
+| SentenceTransformers | Generates dense embeddings |
+| Groq Llama 3.1 | Produces grounded responses |
 
 ---
 
-# 🎥 Demo
+# 📸 User Interface
 
-Add a short GIF or screen recording.
-
-```text
-docs/demo/research-assistant-demo.gif
-```
+![Application Dashboard](image.png)
 
 ---
+
 
 # 🏗 Architecture
 
@@ -111,24 +106,30 @@ A --> G[Llama 3.1 via Groq]
 │       └── paper_embeddings.npy
 │
 ├── src/
+│   ├── __init__.py
+│   │
 │   ├── base/
+│   │   ├── __init__.py
 │   │   ├── engine.py
 │   │   ├── MB_CB_SRC_Research_Paper_Intelligence_System.ipynb
 │   │   └── mb_cb_src_research_paper_intelligence_system.py
 │   │
 │   └── agentic/
 │       ├── __init__.py
+│       ├── agent.py
 │       ├── config.py
+│       ├── main.py
 │       ├── prompts.py
 │       ├── tools.py
-│       ├── agent.py
-│       ├── workflow.py
-│       └── main.py
+│       └── workflow.py
+│
+├── docs/
+│   └── screenshots/
 │
 ├── requirements.txt
 ├── README.md
 ├── .env.example
-└── .gitignore
+├── .gitignore
 ```
 
 The original CBSOT notebook and exported Python implementation are preserved for reference.
@@ -168,7 +169,7 @@ engine.py
 ## Clone Repository
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/manavb-21/Agentic-AI-Research-Paper-Intelligence-System
 cd Agentic-AI-Research-Paper-Intelligence-System
 ```
 
@@ -316,11 +317,3 @@ A valid `GROQ_API_KEY` is required.
 - LangChain
 - Groq
 - Streamlit
-
----
-
-# 📄 License
-
-This project is licensed under the **MIT License**.
-
-See the `LICENSE` file for details.
